@@ -5,51 +5,41 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>AstroCalc • App</title>
 
-  <!-- favicon -->
   <link rel="icon" href="logo.png"/>
   <link rel="apple-touch-icon" href="icon-192.png"/>
   <meta name="theme-color" content="#000000"/>
 
-  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- React + Babel -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
-  <!-- Firebase compat (gli stessi in tutte le pagine) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
 
-  <!-- Config comune -->
   <script src="shared.js"></script>
 
-  <!-- jsPDF + AutoTable -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.5.28/dist/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body class="bg-black text-white">
   <div id="root"></div>
 
-  <!-- ================== APP REACT ================== -->
   <script type="text/babel" data-presets="env,react">
-
     const { useState, useEffect, useMemo } = React;
     const { jsPDF } = window.jspdf;
     const Icon = {Plus:"✚",X:"✖",Down:"⬇️",Del:"🗑️",New:"📁➕",Save:"💾",Logout:"🚪"};
-    const iso2it = iso => { const [y,m,d]=iso.split("-"); return `${d}/${m}/${y}`; };
+    const iso2it = iso => { const [y,m,d] = iso.split("-"); return `${d}/${m}/${y}`; };
 
-    /* --------- MainApp (identico alla versione funzionante) --------- */
-    function MainApp({onLogout}){
+    function MainApp({onLogout}) {
       const uid = auth.currentUser.uid;
 
       const [targets,setTargets]     = useState([]);
       const [equipList,setEquipList] = useState([]);
       const [curIdx,setCurIdx]       = useState(0);
+      const [initialized,setInitialized] = useState(false);
 
-      /* form esposizione */
       const [frames,setFrames]   = useState("");
       const [exp,setExp]         = useState("");
       const [filter,setFilter]   = useState("RGB");
@@ -58,80 +48,82 @@
       const [date,setDate]       = useState(()=>new Date().toISOString().slice(0,10));
       const [exporting,setExport]= useState(false);
 
-      /* ---- sync Firestore realtime ---- */
       useEffect(()=>{
         return db.collection("users").doc(uid)
           .onSnapshot(doc=>{
-            const d = doc.data()||{};
+            const d = doc.data() || {};
             if (d.targets) setTargets(d.targets);
             if (d.equipList) setEquipList(d.equipList);
-            setEquipList(d.equipList||[]);
-            setCurIdx(0);
+            setInitialized(true);
           });
       },[uid]);
 
-      /* ---- write on change ---- */
       useEffect(()=>{
-        db.collection("users").doc(uid).set({targets,equipList},{merge:true});
-      },[targets,equipList,uid]);
+        if (initialized)
+          db.collection("users").doc(uid).set({targets,equipList},{merge:true});
+      },[targets,equipList,uid,initialized]);
 
       const tgt = targets[curIdx] || {name:"",exposures:[]};
-      const updateTgt = obj => setTargets(p=>{const n=[...p];n[curIdx]={...n[curIdx],...obj};return n;});
+      const updateTgt = obj => setTargets(p => {
+        const n = [...p];
+        n[curIdx] = {...n[curIdx],...obj};
+        return n;
+      });
 
-      /* ---- handlers ---- */
-      function addExp(){
-        const f=+frames, e=+exp; if(!f||!e||!equip) return;
+      function addExp() {
+        const f = +frames, e = +exp;
+        if (!f || !e || !equip) return;
         updateTgt({exposures:[...tgt.exposures,{frames:f,exposure:e,filter,equipment:equip,date}]});
         setFrames(""); setExp("");
       }
+
       const remRow = i => updateTgt({exposures:tgt.exposures.filter((_,idx)=>idx!==i)});
       function saveEquip(){
-        const n=newEquip.trim(); if(!n) return;
-        if(!equipList.includes(n)) setEquipList(l=>[...l,n]);
+        const n = newEquip.trim();
+        if (!n) return;
+        if (!equipList.includes(n)) setEquipList(l => [...l,n]);
         setEquip(n); setNewEquip("");
       }
       const deleteEquip = () =>
         equip && confirm(`Eliminare “${equip}”?`) &&
-        setEquipList(l=>l.filter(eq=>eq!==equip)) && setEquip("");
+        setEquipList(l => l.filter(eq => eq!==equip)) && setEquip("");
 
       const newTarget = () => {
-        const n=prompt("Nome nuovo target")?.trim();
-        if(n){ setTargets(p=>[...p,{name:n,exposures:[]}]); setCurIdx(targets.length); }
+        const n = prompt("Nome nuovo target")?.trim();
+        if (n) { setTargets(p => [...p,{name:n,exposures:[]}]); setCurIdx(targets.length); }
       };
       const delTarget = () =>
-        targets.length>1 && confirm("Eliminare questo target?") &&
-        setTargets(p=>p.filter((_,i)=>i!==curIdx)) && setCurIdx(i=>Math.max(0,i-1));
+        targets.length > 1 && confirm("Eliminare questo target?") &&
+        setTargets(p => p.filter((_,i) => i !== curIdx)) && setCurIdx(i => Math.max(0,i-1));
       const clearTarget = () =>
         confirm("Svuotare nome e sessioni del target corrente?") && updateTgt({name:"",exposures:[]});
 
-      /* ---- PDF ---- */
-      function exportPDF(){
-        if(!tgt.exposures.length){ alert("Nessuna sessione."); return; }
+      function exportPDF() {
+        if (!tgt.exposures.length) { alert("Nessuna sessione."); return; }
         setExport(true);
-        const doc=new jsPDF({unit:"mm",format:"a4"});
+        const doc = new jsPDF({unit:"mm",format:"a4"});
         doc.setFontSize(16).text(`Target: ${tgt.name||"—"}`,10,15);
-        const tot=tgt.exposures.reduce((s,x)=>s+x.frames*x.exposure,0);
-        const h=Math.floor(tot/3600),m=Math.floor((tot%3600)/60),s=tot%60;
+        const tot = tgt.exposures.reduce((s,x)=>s+x.frames*x.exposure,0);
+        const h = Math.floor(tot/3600), m = Math.floor((tot%3600)/60), s = tot%60;
         doc.setFontSize(12).text(`Tempo di integrazione totale: ${h}h ${m}m ${s}s`,10,25);
         doc.autoTable({
           head:[["#","Data","Sub","Exp (s)","Filtro","Attrezzatura"]],
           body:tgt.exposures.map((e,i)=>[i+1,iso2it(e.date),e.frames,e.exposure,e.filter,e.equipment]),
-          startY:35,headStyles:{fillColor:[30,41,59]},alternateRowStyles:{fillColor:[240,240,240]}
+          startY:35,
+          headStyles:{fillColor:[30,41,59]},
+          alternateRowStyles:{fillColor:[240,240,240]}
         });
         doc.save(`${tgt.name||"target"}_integration.pdf`);
         setExport(false);
       }
 
-      /* ---- totali ---- */
-      const {h,mn,ss,total}=useMemo(()=>{
-        const T=tgt.exposures.reduce((s,x)=>s+x.frames*x.exposure,0);
-        return{total:T,h:Math.floor(T/3600),mn:Math.floor((T%3600)/60),ss:T%60};
+      const {h,mn,ss,total} = useMemo(() => {
+        const T = tgt.exposures.reduce((s,x)=>s+x.frames*x.exposure,0);
+        return {total:T,h:Math.floor(T/3600),mn:Math.floor((T%3600)/60),ss:T%60};
       },[tgt]);
 
-      /* ---- UI ---- */
-      return(
+      return (
         <div className="max-w-lg mx-auto p-4 space-y-6">
-          {/* header */}
           <header className="flex justify-between items-center">
             <div className="flex items-center gap-2">
               <img src="logo.png" className="w-8 h-8" alt="logo"/>
@@ -143,7 +135,6 @@
             </div>
           </header>
 
-          {/* target selector */}
           <section className="bg-gray-800 rounded-xl p-4 space-y-3">
             <div className="flex gap-2">
               <select value={curIdx} onChange={e=>setCurIdx(+e.target.value)}
@@ -158,7 +149,6 @@
                    className="w-full px-2 py-1 bg-gray-900 rounded border"/>
           </section>
 
-          {/* attrezzatura */}
           <section className="bg-gray-800 rounded-xl p-4 space-y-2">
             <h2 className="text-lg font-semibold">Attrezzatura</h2>
             <div className="flex gap-2">
@@ -177,10 +167,8 @@
             </div>
           </section>
 
-          {/* nuova esposizione */}
           <section className="bg-gray-800 rounded-xl p-4 space-y-3">
             <h2 className="text-lg font-semibold">Nuova esposizione</h2>
-
             <div className="grid grid-cols-2 gap-3">
               <input type="date" value={date} onChange={e=>setDate(e.target.value)}
                      className="w-full px-2 py-1 bg-gray-700 rounded border text-white"/>
@@ -192,22 +180,19 @@
                 <option value="DualBand">Filtro Dual-Band</option>
               </select>
             </div>
-
             <div className="grid grid-cols-2 gap-3">
               <input type="number" min="1" value={frames} onChange={e=>setFrames(e.target.value)}
                      placeholder="Sub" className="w-full px-2 py-1 bg-gray-900 rounded border"/>
               <input type="number" min="1" value={exp} onChange={e=>setExp(e.target.value)}
                      placeholder="Exp (s)" className="w-full px-2 py-1 bg-gray-900 rounded border"/>
             </div>
-
             <button onClick={addExp} disabled={!equip}
                     className="w-full py-2 bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50">
               {Icon.Plus} Aggiungi
             </button>
           </section>
 
-          {/* lista esposizioni */}
-          {tgt.exposures.length>0 &&
+          {tgt.exposures.length > 0 &&
             <section className="bg-gray-800 rounded-xl p-4">
               <h2 className="text-lg font-semibold mb-2">Sessioni ({tgt.exposures.length})</h2>
               <ul className="space-y-2">
@@ -221,11 +206,9 @@
             </section>
           }
 
-          {/* totali + bottoni */}
           <section className="bg-gray-800 rounded-xl p-4 text-center space-y-2">
             <div className="text-xl font-semibold">{h}h {mn}m {ss}s</div>
             <div className="text-sm text-gray-400">({total} sec)</div>
-
             <div className="grid grid-cols-2 gap-2">
               <button onClick={exportPDF} disabled={exporting||!tgt.exposures.length}
                       className="py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50">
@@ -241,11 +224,10 @@
       );
     }
 
-    /* --------------- bootstrap --------------- */
     auth.onAuthStateChanged(u=>{
-      if(!u){ location.href='index.html'; return; }
-      ReactDOM.createRoot(document.getElementById('root'))
-        .render(<MainApp onLogout={()=>auth.signOut().then(()=>location.href='index.html')}/>);
+      if (!u) location.href='index.html';
+      else ReactDOM.createRoot(document.getElementById("root"))
+        .render(<MainApp onLogout={()=>auth.signOut().then(()=>location.href='index.html')} />);
     });
   </script>
 </body>
