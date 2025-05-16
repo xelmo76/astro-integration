@@ -63,7 +63,8 @@
         return db.collection("users").doc(uid)
           .onSnapshot(doc=>{
             const d = doc.data()||{};
-            setTargets(d.targets?.length ? d.targets : [{name:"",exposures:[]}]);
+            if (d.targets) setTargets(d.targets);
+            if (d.equipList) setEquipList(d.equipList);
             setEquipList(d.equipList||[]);
             setCurIdx(0);
           });
