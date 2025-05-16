@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>AstroCalc • Login</title>
-  <link rel="icon" href="logo.png">
+  <link rel="icon" href="logo.png" />
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- Firebase compat -->
@@ -15,34 +15,44 @@
 </head>
 <body class="bg-black text-white flex items-center justify-center min-h-screen px-4">
   <div class="w-full max-w-xs space-y-5 text-center">
-    <img src="logo.png" class="w-24 h-24 mx-auto" alt="logo">
+    <img src="logo.png" class="w-24 h-24 mx-auto" alt="logo" />
     <h1 class="text-2xl font-bold">Astro Integration<br>Calculator</h1>
 
     <form id="login" class="space-y-3">
       <input id="email" type="email" required placeholder="Email"
-             class="w-full px-3 py-2 bg-gray-800 border rounded">
+             class="w-full px-3 py-2 bg-gray-800 border rounded" />
       <input id="pw" type="password" required placeholder="Password"
-             class="w-full px-3 py-2 bg-gray-800 border rounded">
+             class="w-full px-3 py-2 bg-gray-800 border rounded" />
       <p id="err" class="text-red-400 text-sm"></p>
       <button class="w-full py-2 rounded bg-blue-600 hover:bg-blue-700">Accedi</button>
     </form>
 
-    <a href="register.html" class="text-sm text-gray-400 hover:underline">Non hai un account? Registrati</a>
+    <a href="register.html" class="text-sm text-gray-400 hover:underline">
+      Non hai un account? Registrati
+    </a>
   </div>
 
   <script>
-    /* se sei già loggato vai diretto all’app */
-    auth.onAuthStateChanged(u => { if(u) location.href = 'app.html'; });
+    // Se già autenticato → vai direttamente all'app
+    auth.onAuthStateChanged(user => {
+      if (user) location.href = "app.html";
+    });
 
-    document.getElementById('login').addEventListener('submit', async e=>{
+    document.getElementById("login").addEventListener("submit", async e => {
       e.preventDefault();
-      const email = email.value.trim();
-      const pw    = pw.value.trim();
-      err.textContent = '';
-      try{
+
+      const email = document.getElementById("email").value.trim();
+      const pw    = document.getElementById("pw").value.trim();
+      const errEl = document.getElementById("err");
+
+      errEl.textContent = "";
+
+      try {
         await auth.signInWithEmailAndPassword(email, pw);
-        location.href = 'app.html';
-      }catch(e){ err.textContent = e.message; }
+        location.href = "app.html";
+      } catch (err) {
+        errEl.textContent = err.message;
+      }
     });
   </script>
 </body>
