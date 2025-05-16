@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Astro Integration Calculator</title>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React 18 UMD -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+  <!-- Babel (env + react) -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Firebase compat -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+  <!-- jsPDF + AutoTable -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.5.28/dist/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body class="bg-black text-white">
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="env,react">
+    /* ---------- Firebase init ---------- */
+    const firebaseConfig = {
+      apiKey: "AIzaSyC-yq-I_vTDSOk4geEdve2vv7YUK9WztV4",
+      authDomain: "astro-calc-75aad.firebaseapp.com",
+      projectId: "astro-calc-75aad",
+      storageBucket: "astro-calc-75aad.firebasestorage.app",
+      messagingSenderId: "941070167137",
+      appId: "1:941070167137:web:23fb9bfffaa4ea3d944e20",
+      measurementId: "G-GNH4W6W0LD"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db   = firebase.firestore();
+    const auth = firebase.auth();
+
+    /* ---------- costanti localStorage ---------- */
+    const LS_TGT = "astro-targets-v1";
+    const LS_EQ  = "astro-equip-v1";
+
+    /* ---------- icone ---------- */
+    const Icon = {Plus:"✚",X:"✖",Down:"⬇️",Del:"🗑️",New:"📁➕",Save:"💾"};
+
+    const {useState,useEffect,useMemo} = React;
+    const {jsPDF} = window.jspdf;
+
+    function App(){
+      /* ---------- stato principale ---------- */
+      const [targets,setTargets]   = useState([]);
+      const [equipList,setEquipList]=useState([]);
+      const [curIdx,setCurIdx]     = useState(0);
+      const [firebaseReady,setFirebaseReady]=useState(false);
+
+      /* ---------- expo form ---------- */
+      const [frames,setFrames]=useState("");
+      const [exp,setExp]    =useState("");
+      const [filter,setFilter]=useState("RGB");
+      const [equip,setEquip]=useState("");
+      const [newEquip,setNewEquip]=useState("");
+      const [date,setDate]  =useState(()=>new Date().toISOString().slice(0,10));
+      const [exporting,setExport]=useState(false);
+
+      /* ---------- Firebase auth & listener ---------- */
+      useEffect(()=>{
+        auth.signInAnonymously().catch(console.error);
+        auth.onAuthStateChanged(user=>{
+          if(!user) return;
+          /* Listen to cloud updates */
+          db.collection("users").doc(user.uid)
+            .onSnapshot(doc=>{
+              if(!doc.exists){ setFirebaseReady(true); return; }
+              const data = doc.data();
+              if(data.targets)   setTargets(data.targets);
+              if(data.equipList) setEquipList(data.equipList);
+              setCurIdx(0);
+              setFirebaseReady(true);
+            });
+        });
+      },[]);
+
+      /* ---------- load localStorage fallback (solo al primo mount) ---------- */
+      useEffect(()=>{
+        const t = JSON.parse(localStorage.getItem(LS_TGT)||"[]");
+        const e = JSON.parse(localStorage.getItem(LS_EQ )||"[]");
+        if(!t.length) setTargets([{name:"",exposures:[]}]); else setTargets(t);
+        setEquipList(Array.isArray(e)?e:[]);
+      },[]);
+
+      /* ---------- salva su localStorage & Firebase ---------- */
+      useEffect(()=>{
+        localStorage.setItem(LS_TGT,JSON.stringify(targets));
+        if(firebaseReady && auth.currentUser)
+          db.collection("users").doc(auth.currentUser.uid)
+            .set({targets,equipList},{merge:true});
+      },[targets]);
+
+      useEffect(()=>{
+        localStorage.setItem(LS_EQ,JSON.stringify(equipList));
+        if(firebaseReady && auth.currentUser)
+          db.collection("users").doc(auth.currentUser.uid)
+            .set({targets,equipList},{merge:true});
+      },[equipList]);
+
+      const tgt = targets[curIdx]||{name:"",exposures:[]};
+      const updateTgt = up =>
+        setTargets(p=>{const n=[...p];n[curIdx]={...n[curIdx],...up};return n;});
+
+      /* ---------- esposizione handlers ---------- */
+      function addExp(){
+        const f=+frames, e=+exp; if(!f||!e||!equip) return;
+        updateTgt({exposures:[...tgt.exposures,{frames:f,exposure:e,filter,equipment:equip,date}]});
+        setFrames(""); setExp("");
+      }
+      const remRow = i =>
+        updateTgt({exposures:tgt.exposures.filter((_,idx)=>idx!==i)});
+
+      /* ---------- equipment handlers ---------- */
+      function saveEquip(){
+        const n=newEquip.trim(); if(!n) return;
+        if(!equipList.includes(n)) setEquipList(l=>[...l,n]);
+        setEquip(n); setNewEquip("");
+      }
+      function deleteEquip(){
+        if(equip && confirm(`Eliminare “${equip}”?`)){
+          setEquipList(l=>l.filter(eq=>eq!==equip)); setEquip("");
+        }
+      }
+
+      /* ---------- target CRUD ---------- */
+      function newTarget(){
+        const n=prompt("Nome nuovo target")?.trim();
+        if(n){ setTargets(p=>[...p,{name:n,exposures:[]}]); setCurIdx(targets.length); }
+      }
+      function delTarget(){
+        if(targets.length>1 && confirm("Eliminare questo target?")){
+          setTargets(p=>p.filter((_,i)=>i!==curIdx));
+          setCurIdx(i=>Math.max(0,i-1));
+        }
+      }
+      function clearTarget(){
+        if(confirm("Svuotare nome e sessioni del target corrente?"))
+          updateTgt({name:"",exposures:[]});
+      }
+
+      /* ---------- export PDF ---------- */
+      const iso2it = iso=>{const[a,b,c]=iso.split("-");return`${c}/${b}/${a}`;};
+      function exportPDF(){
+        if(!tgt.exposures.length){alert("Nessuna sessione.");return;}
+        setExport(true);
+        const doc=new jsPDF({unit:"mm",format:"a4"});
+        doc.setFontSize(16).text(`Target: ${tgt.name||"—"}`,10,15);
+        const tot=tgt.exposures.reduce((s,x)=>s+x.frames*x.exposure,0);
+        const h=Math.floor(tot/3600),m=Math.floor((tot%3600)/60),s=tot%60;
+        doc.setFontSize(12).text(`Tempo di integrazione totale: ${h}h ${m}m ${s}s`,10,25);
+        doc.autoTable({
+          head:[["#","Data","Sub","Exp (s)","Filtro","Attrezzatura"]],
+          body:tgt.exposures.map((e,i)=>[i+1,iso2it(e.date),e.frames,e.exposure,e.filter,e.equipment]),
+          startY:35,headStyles:{fillColor:[30,41,59]},alternateRowStyles:{fillColor:[240,240,240]}
+        });
+        doc.save(`${tgt.name||"target"}_integration.pdf`);
+        setExport(false);
+      }
+
+      /* ---------- totali ---------- */
+      const {h,mn,ss,total}=useMemo(()=>{
+        const T=tgt.exposures.reduce((s,x)=>s+x.frames*x.exposure,0);
+        return{total:T,h:Math.floor(T/3600),mn:Math.floor((T%3600)/60),ss:T%60};
+      },[tgt]);
+
+      /* ---------- UI ---------- */
+      return(
+        <div className="max-w-lg mx-auto p-4 space-y-6">
+          {/* target selector */}
+          <section className="bg-gray-800 rounded-xl p-4 space-y-3">
+            <div className="flex gap-2">
+              <select value={curIdx} onChange={e=>setCurIdx(+e.target.value)}
+                      className="flex-1 px-2 py-1 rounded border bg-gray-900 text-white">
+                {targets.map((t,i)=><option key={i} value={i}>{t.name||`Target ${i+1}`}</option>)}
+              </select>
+              <button onClick={newTarget}>{Icon.New}</button>
+              <button onClick={delTarget}>{Icon.Del}</button>
+            </div>
+            <input value={tgt.name} onChange={e=>updateTgt({name:e.target.value})}
+                   placeholder="Nome target" className="w-full px-2 py-1 rounded border"/>
+          </section>
+
+          {/* attrezzatura */}
+          <section className="bg-gray-800 rounded-xl p-4 space-y-2">
+            <h2 className="text-lg font-semibold">Attrezzatura</h2>
+            <div className="flex gap-2">
+              <select value={equip} onChange={e=>setEquip(e.target.value)}
+                      className="flex-1 px-2 py-1 rounded border bg-gray-900 text-white">
+                <option value="">— seleziona —</option>
+                {equipList.map((eq,i)=><option key={i}>{eq}</option>)}
+              </select>
+              <button onClick={deleteEquip} disabled={!equip}>{Icon.Del}</button>
+            </div>
+            <div className="flex gap-2">
+              <input value={newEquip} onChange={e=>setNewEquip(e.target.value)}
+                     placeholder="Nuova attrezzatura"
+                     className="flex-1 px-2 py-1 rounded border bg-gray-900 text-white"/>
+              <button onClick={saveEquip}>{Icon.Save}</button>
+            </div>
+          </section>
+
+          {/* nuova esposizione */}
+          <section className="bg-gray-800 rounded-xl p-4 space-y-3">
+            <h2 className="text-lg font-semibold">Nuova esposizione</h2>
+
+            {/* Data + Filtro */}
+            <div className="grid grid-cols-2 gap-3">
+              <input type="date" value={date} onChange={e=>setDate(e.target.value)}
+                     className="w-full px-2 py-1 rounded border bg-gray-700 text-white"/>
+              <select value={filter} onChange={e=>setFilter(e.target.value)}
+                      className="w-full px-2 py-1 rounded border bg-gray-900 text-white">
+                <option value="RGB">RGB / L</option><option value="Hα">Hα</option>
+                <option value="OIII">OIII</option><option value="SII">SII</option>
+                <option value="VIS">Filtro VIS</option>
+                <option value="Astro">Filtro Astro</option>
+                <option value="DualBand">Filtro Dual-Band</option>
+              </select>
+            </div>
+
+            {/* Sub + Exp */}
+            <div className="grid grid-cols-2 gap-3">
+              <input type="number" min="1" value={frames} onChange={e=>setFrames(e.target.value)}
+                     placeholder="Sub" className="w-full px-2 py-1 rounded border bg-gray-900"/>
+              <input type="number" min="1" value={exp} onChange={e=>setExp(e.target.value)}
+                     placeholder="Exp (s)" className="w-full px-2 py-1 rounded border bg-gray-900"/>
+            </div>
+
+            <button onClick={addExp} disabled={!equip}
+                    className="w-full bg-blue-600 hover:bg-blue-700 rounded py-2 disabled:opacity-50">
+              {Icon.Plus} Aggiungi
+            </button>
+          </section>
+
+          {/* lista */}
+          {tgt.exposures.length>0 &&
+            <section className="bg-gray-800 rounded-xl p-4">
+              <h2 className="text-lg font-semibold mb-2">Sessioni ({tgt.exposures.length})</h2>
+              <ul className="space-y-2">
+                {tgt.exposures.map((e,i)=><li key={i}
+                  className="flex justify-between items-center border border-gray-700 rounded p-2">
+                  <span>{e.date} – {e.frames}×{e.exposure}s ({e.filter}) [{e.equipment}]</span>
+                  <button onClick={()=>remRow(i)} className="text-red-400 hover:text-red-500">{Icon.X}</button>
+                </li>)}
+              </ul>
+            </section>
+          }
+
+          {/* totali + bottoni */}
+          <section className="bg-gray-800 rounded-xl p-4 text-center space-y-2">
+            <div className="text-xl font-semibold">{h}h {mn}m {ss}s</div>
+            <div className="text-sm text-gray-400">({total} sec)</div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={exportPDF} disabled={exporting||!tgt.exposures.length}
+                      className="bg-green-600 hover:bg-green-700 rounded py-2 disabled:opacity-50">
+                {Icon.Down} PDF</button>
+              <button onClick={clearTarget} disabled={!tgt.name.trim()&&!tgt.exposures.length}
+                      className="bg-red-600 hover:bg-red-700 rounded py-2 disabled:opacity-50">
+                {Icon.Del} Cancella</button>
+            </div>
+          </section>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+  </script>
+</body>
+</html>
